@@ -16,7 +16,6 @@ APP_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_DIR.parent
 MODEL_PATH = PROJECT_ROOT / "final_rf_pipeline_with_metadata.joblib"
 METRICS_PATH = PROJECT_ROOT / "metrics.json"
-ARTIFACTS_DIR = PROJECT_ROOT / "evaluation_artifacts"
 DATA_PATH = PROJECT_ROOT / "data" / "Loan_default.csv"
 
 st.set_page_config(
@@ -37,6 +36,7 @@ def build_explainer(_pipeline):
 
 @st.cache_data
 def load_metrics():
+    # We still load this just to get the optimal threshold, but we don't display the page
     if METRICS_PATH.exists():
         return json.loads(METRICS_PATH.read_text())
     return None
@@ -101,7 +101,7 @@ def render_shap_chart(contributions: list[dict]) -> None:
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png", dpi=120, bbox_inches="tight")
     plt.close(fig)
-    st.image(buffer.getvalue(), use_column_width=True)
+    st.image(buffer.getvalue(), width="stretch")
 
 def inject_style() -> None:
     st.markdown(
@@ -123,8 +123,10 @@ def render_predict_page(pipeline, explainer, metrics):
     st.subheader("Applicant Profile")
     st.write("Enter the applicant's details below to predict default risk.")
     
+    # Automatically use the optimal threshold, fallback to 0.5 if not found
+    threshold = metrics.get("optimal_threshold", 0.5) if metrics else 0.5
+    
     with st.form("prediction_form"):
-        # Use columns to keep the form looking neat and centered
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -151,17 +153,9 @@ def render_predict_page(pipeline, explainer, metrics):
 
         st.divider()
         
-        # Decision Threshold
-        tuned_threshold = metrics.get("optimal_threshold", 0.5) if metrics else 0.5
-        threshold = st.slider(
-            "Decision threshold", min_value=0.05, max_value=0.95, value=float(tuned_threshold), step=0.01,
-            help="Applicants with probability at or above this value are flagged as high risk."
-        )
-        
         submit_button = st.form_submit_button("Predict Default Risk", type="primary", use_container_width=True)
 
     if submit_button:
-        # Gather inputs
         payload = {
             "Age": age, "Income": income, "LoanAmount": loan_amount, "CreditScore": credit_score,
             "MonthsEmployed": months_employed, "NumCreditLines": num_credit_lines,
@@ -170,7 +164,6 @@ def render_predict_page(pipeline, explainer, metrics):
             "HasMortgage": mortgage, "HasDependents": dependents, "LoanPurpose": purpose, "HasCoSigner": cosigner
         }
         
-        # Predict
         result = score_locally(pipeline, explainer, payload, threshold)
         st.session_state["prediction_result"] = result
         st.session_state["input_payload"] = payload
@@ -182,10 +175,9 @@ def render_predict_page(pipeline, explainer, metrics):
         st.divider()
         st.subheader("Prediction Result")
         
-        col_a, col_b, col_c = st.columns(3)
+        col_a, col_b = st.columns(2)
         col_a.metric("Probability of default", f"{result['probability_of_default']:.2%}")
-        col_b.metric("Threshold applied", f"{result['threshold_used']:.2f}")
-        col_c.metric("Decision", "High risk" if result['prediction'] == 1 else "Low risk")
+        col_b.metric("Decision", "High risk" if result['prediction'] == 1 else "Low risk")
         
         if result["prediction"] == 1:
             st.error(result["risk_label"])
@@ -193,17 +185,20 @@ def render_predict_page(pipeline, explainer, metrics):
             st.success(result["risk_label"])
         st.progress(min(max(result['probability_of_default'], 0.0), 1.0))
         
-        # Download Button
+        # Download to Excel
         dl_df = pd.DataFrame([payload])
         dl_df["Predicted_Default"] = result["prediction"]
         dl_df["Default_Probability"] = result["probability_of_default"]
-        csv = dl_df.to_csv(index=False).encode('utf-8')
+        
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            dl_df.to_excel(writer, index=False, sheet_name='Prediction')
         
         st.download_button(
-            label="📥 Download Prediction Result (CSV)",
-            data=csv,
-            file_name="loan_prediction_result.csv",
-            mime="text/csv",
+            label="📥 Download Prediction Result (Excel)",
+            data=excel_buffer.getvalue(),
+            file_name="loan_prediction_result.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
         st.markdown("### Why this prediction?")
@@ -223,63 +218,25 @@ def render_data_explorer():
     st.subheader("Data Explorer")
     st.write("Use the filters on the left to explore the loan portfolio dataset.")
 
-    # Sidebar filters
-    st.sidebar.markdown("### Dynamic Filters")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔍 Dynamic Filters")
     
-    # Age Filter
     min_age, max_age = int(df["Age"].min()), int(df["Age"].max())
     age_range = st.sidebar.slider("Filter by Age", min_age, max_age, (min_age, max_age))
     
-    # Income Filter
     min_inc, max_inc = int(df["Income"].min()), int(df["Income"].max())
     inc_range = st.sidebar.slider("Filter by Income", min_inc, max_inc, (min_inc, max_inc), step=1000)
 
-    # Apply filters
     filtered_df = df[
         (df["Age"] >= age_range[0]) & (df["Age"] <= age_range[1]) &
         (df["Income"] >= inc_range[0]) & (df["Income"] <= inc_range[1])
     ]
+    
+    # Priority by Age, then by Income
+    filtered_df = filtered_df.sort_values(by=["Age", "Income"], ascending=[True, False])
 
     st.write(f"Showing **{len(filtered_df):,}** records matching your filters.")
     st.dataframe(filtered_df, use_container_width=True)
-
-
-# ==========================================
-# PAGE 3: MODEL PERFORMANCE
-# ==========================================
-def render_performance_page(metrics):
-    if metrics is None:
-        st.warning("metrics.json not found. Run `python ml/evaluate.py` to generate it.")
-        return
-
-    st.subheader("Model performance on held-out test set")
-    optimal = metrics["optimal_threshold_metrics"]
-    default = metrics["default_threshold_metrics"]
-
-    with st.container(border=True):
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("ROC AUC", f"{metrics['roc_auc']:.3f}")
-        col2.metric("F1 (tuned)", f"{optimal['f1']:.3f}")
-        col3.metric("Precision (tuned)", f"{optimal['precision']:.3f}")
-        col4.metric("Recall (tuned)", f"{optimal['recall']:.3f}")
-        st.caption(
-            f"Optimal threshold = {metrics['optimal_threshold']:.3f}. "
-            f"At default 0.5 threshold: F1 = {default['f1']:.3f}."
-        )
-
-    st.markdown("### Diagnostic charts")
-    col_a, col_b = st.columns(2)
-    
-    # Check if images exist and show them
-    cm_path = ARTIFACTS_DIR / "confusion_matrix.png"
-    roc_path = ARTIFACTS_DIR / "roc_curve.png"
-    pr_path = ARTIFACTS_DIR / "pr_curve.png"
-    fi_path = ARTIFACTS_DIR / "feature_importance.png"
-    
-    if cm_path.exists(): col_a.image(cm_path.read_bytes(), caption="Confusion Matrix", use_column_width=True)
-    if roc_path.exists(): col_b.image(roc_path.read_bytes(), caption="ROC Curve", use_column_width=True)
-    if pr_path.exists(): col_a.image(pr_path.read_bytes(), caption="Precision-Recall Curve", use_column_width=True)
-    if fi_path.exists(): col_b.image(fi_path.read_bytes(), caption="Feature Importance", use_column_width=True)
 
 
 # ==========================================
@@ -292,9 +249,9 @@ def main() -> None:
     explainer = build_explainer(pipeline)
     metrics = load_metrics()
 
-    # Sidebar Navigation
     st.sidebar.title("🏦 Navigation")
-    page = st.sidebar.radio("Go to", ["Predict Risk", "Data Explorer", "Model Performance", "About"])
+    # Removed "Model Performance" from the list
+    page = st.sidebar.radio("Go to", ["Predict Risk", "Data Explorer", "About"])
 
     st.title("Loan Default Prediction")
     st.caption("Random Forest classifier with threshold tuning and SHAP explanations.")
@@ -303,8 +260,6 @@ def main() -> None:
         render_predict_page(pipeline, explainer, metrics)
     elif page == "Data Explorer":
         render_data_explorer()
-    elif page == "Model Performance":
-        render_performance_page(metrics)
     elif page == "About":
         st.subheader("About this project")
         st.write("This application predicts the probability that a loan applicant will default. It uses a Random Forest classifier and provides SHAP explanations to show exactly which factors influenced the decision.")
