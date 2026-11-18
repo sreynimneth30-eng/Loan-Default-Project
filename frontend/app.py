@@ -22,6 +22,7 @@ st.set_page_config(
     page_title="Loan Default Prediction",
     page_icon="🏦",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 @st.cache_resource
@@ -36,7 +37,6 @@ def build_explainer(_pipeline):
 
 @st.cache_data
 def load_metrics():
-    # We still load this just to get the optimal threshold, but we don't display the page
     if METRICS_PATH.exists():
         return json.loads(METRICS_PATH.read_text())
     return None
@@ -91,26 +91,104 @@ def render_shap_chart(contributions: list[dict]) -> None:
     values = [c["shap_value"] for c in contributions]
     colors = ["#d62728" if v > 0 else "#2ca02c" for v in values]
 
+    plt.style.use('default')
     fig, ax = plt.subplots(figsize=(8, max(3, 0.4 * len(features))))
     ax.barh(features, values, color=colors)
     ax.axvline(0, color="black", linewidth=0.8)
-    ax.set_xlabel("SHAP value (impact on default probability)")
+    ax.set_xlabel("Impact on default probability")
     ax.set_title("Feature contributions for this applicant")
     fig.tight_layout()
 
     buffer = io.BytesIO()
-    fig.savefig(buffer, format="png", dpi=120, bbox_inches="tight")
+    fig.savefig(buffer, format="png", dpi=120, bbox_inches="tight", transparent=False)
     plt.close(fig)
+    
+    # 🛠️ FIX: Replaced use_column_width with width="stretch" to remove the warning
     st.image(buffer.getvalue(), width="stretch")
 
+# ==========================================
+# 🎨 CUSTOM SIDEBAR CSS
+# ==========================================
 def inject_style() -> None:
     st.markdown(
         """
         <style>
-          .block-container {padding-top: 2.2rem; padding-bottom: 2rem; max-width: 1000px;}
-          [data-testid="stMetricValue"] {font-size: 1.9rem;}
-          [data-testid="stMetricLabel"] {opacity: 0.75;}
-          h1 {margin-bottom: 0.3rem;}
+        /* 1. Main app background */
+        [data-testid="stAppViewContainer"] {
+            background-color: #F4F5F9;
+        }
+        
+        /* 2. Sidebar as a floating card */
+        [data-testid="stSidebar"] {
+            background-color: #FFFFFF;
+            border-radius: 20px;
+            margin: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            height: calc(100vh - 30px);
+        }
+        
+        /* Hide the default Streamlit collapse button */
+        [data-testid="collapsedControl"] { display: none; }
+
+        /* 3. Style the Navigation Links (Radio Buttons) */
+        [data-testid="stSidebar"] .stRadio > div {
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        [data-testid="stSidebar"] .stRadio label {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            color: #7A869A;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            border: none;
+        }
+
+        /* Hide the default radio circle */
+        [data-testid="stSidebar"] .stRadio label > div:first-child {
+            display: none;
+        }
+
+        /* Hover state */
+        [data-testid="stSidebar"] .stRadio label:hover {
+            background-color: #F4F5F9;
+            color: #2D3436;
+        }
+
+        /* Active state (The Purple Box) */
+        [data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+            background-color: #6C5CE7;
+            color: white;
+            box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);
+        }
+        
+        /* 4. Profile Header Styling */
+        .profile-info h4 { margin: 0; color: #2D3436; font-size: 16px; }
+        .profile-info p { margin: 0; color: #A0AAB5; font-size: 12px; }
+
+        /* 5. Metric Cards */
+        [data-testid="stMetric"] {
+            background-color: #FFFFFF;
+            border: 1px solid #E5E9F2;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+        }
+        [data-testid="stMetricValue"] {font-size: 1.9rem; color: #6C5CE7;}
+        
+        /* 6. Main Form Container */
+        [data-testid="stForm"] {
+            background-color: #FFFFFF;
+            padding: 25px;
+            border-radius: 15px;
+            border: 1px solid #E5E9F2;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -123,7 +201,6 @@ def render_predict_page(pipeline, explainer, metrics):
     st.subheader("Applicant Profile")
     st.write("Enter the applicant's details below to predict default risk.")
     
-    # Automatically use the optimal threshold, fallback to 0.5 if not found
     threshold = metrics.get("optimal_threshold", 0.5) if metrics else 0.5
     
     with st.form("prediction_form"):
@@ -152,7 +229,6 @@ def render_predict_page(pipeline, explainer, metrics):
             cosigner = st.selectbox("Has Co-Signer", ["Yes", "No"])
 
         st.divider()
-        
         submit_button = st.form_submit_button("Predict Default Risk", type="primary", use_container_width=True)
 
     if submit_button:
@@ -185,7 +261,7 @@ def render_predict_page(pipeline, explainer, metrics):
             st.success(result["risk_label"])
         st.progress(min(max(result['probability_of_default'], 0.0), 1.0))
         
-        # Download to Excel
+        # Download Excel
         dl_df = pd.DataFrame([payload])
         dl_df["Predicted_Default"] = result["prediction"]
         dl_df["Default_Probability"] = result["probability_of_default"]
@@ -205,7 +281,6 @@ def render_predict_page(pipeline, explainer, metrics):
         st.caption("Green bars push probability down (toward approval), red bars push it up (toward default).")
         render_shap_chart(result["top_feature_contributions"])
 
-
 # ==========================================
 # PAGE 2: DATA EXPLORER
 # ==========================================
@@ -218,9 +293,6 @@ def render_data_explorer():
     st.subheader("Data Explorer")
     st.write("Use the filters on the left to explore the loan portfolio dataset.")
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🔍 Dynamic Filters")
-    
     min_age, max_age = int(df["Age"].min()), int(df["Age"].max())
     age_range = st.sidebar.slider("Filter by Age", min_age, max_age, (min_age, max_age))
     
@@ -232,12 +304,10 @@ def render_data_explorer():
         (df["Income"] >= inc_range[0]) & (df["Income"] <= inc_range[1])
     ]
     
-    # Priority by Age, then by Income
     filtered_df = filtered_df.sort_values(by=["Age", "Income"], ascending=[True, False])
 
     st.write(f"Showing **{len(filtered_df):,}** records matching your filters.")
     st.dataframe(filtered_df, use_container_width=True)
-
 
 # ==========================================
 # MAIN ROUTING
@@ -249,21 +319,44 @@ def main() -> None:
     explainer = build_explainer(pipeline)
     metrics = load_metrics()
 
-    st.sidebar.title("🏦 Navigation")
-    # Removed "Model Performance" from the list
-    page = st.sidebar.radio("Go to", ["Predict Risk", "Data Explorer", "About"])
+    # --- CUSTOM PROFILE HEADER WITH YOUR IMAGE ---
+    # Saves the image you provided as logo.png in the frontend folder
+    with st.sidebar:
+        col_img, col_text = st.columns([1, 2.5])
+        with col_img:
+            # If you saved the image as logo.png in the frontend folder, this loads it.
+            # If it doesn't find it, it will just show a small placeholder box.
+            try:
+                st.image("logo.png", width=50)
+            except:
+                st.write("🖼️")
+        with col_text:
+            st.markdown(
+                """
+                <div class="profile-info">
+                    <h4>Loan Analyst</h4>
+                    <p>Risk Management</p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+    
+    # --- NAVIGATION ---
+    page = st.sidebar.radio(
+        "Menu", 
+        [" Dashboard", " Data Explorer", "ℹ About"],
+        label_visibility="collapsed"
+    )
 
-    st.title("Loan Default Prediction")
-    st.caption("Random Forest classifier with threshold tuning and SHAP explanations.")
-
-    if page == "Predict Risk":
+    # Map the radio button selection back to our pages
+    if "Dashboard" in page:
         render_predict_page(pipeline, explainer, metrics)
-    elif page == "Data Explorer":
+    elif "Data Explorer" in page:
         render_data_explorer()
-    elif page == "About":
-        st.subheader("About this project")
-        st.write("This application predicts the probability that a loan applicant will default. It uses a Random Forest classifier and provides SHAP explanations to show exactly which factors influenced the decision.")
-        st.write("Built for the Data Science Web App midterm project.")
+    elif "About" in page:
+        st.subheader("About the System")
+        st.write("Welcome to the Intelligent Loan Risk Assessment System.")
+        st.write("This tool predicts default risk and provides transparent AI insights.")
 
 if __name__ == "__main__":
     main()

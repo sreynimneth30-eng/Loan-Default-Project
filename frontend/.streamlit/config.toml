@@ -1,7 +1,7 @@
 [theme]
 base = "light"
-primaryColor = "#0056b3"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f8f9fa"
-textColor = "#212529"
+primaryColor = "#6C5CE7" # The purple from your image
+backgroundColor = "#F4F5F9" # Light gray background
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#2D3436"
 font = "sans serif"
