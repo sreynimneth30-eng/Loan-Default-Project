@@ -354,9 +354,17 @@ def main() -> None:
     elif "Data Explorer" in page:
         render_data_explorer()
     elif "About" in page:
-        st.subheader("About the System")
-        st.write("Welcome to the Intelligent Loan Risk Assessment System.")
-        st.write("This tool predicts default risk and provides transparent AI insights.")
+        st.subheader("About this System")
+        
+        st.markdown(
+            """
+            **About the Project:**
+            This app predicts loan default risk using a Random Forest model trained on heavily imbalanced financial data (only ~11.6% default rate). 
+            
+            I built this end-to-end system to demonstrate how to handle imbalanced data safely, integrate **Explainable AI (SHAP)** so loan officers can understand *why* a decision was made, and deploy it as a clean, interactive web application.
+            """
+        )
+        
 
 if __name__ == "__main__":
     main()
