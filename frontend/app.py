@@ -103,22 +103,21 @@ def render_shap_chart(contributions: list[dict]) -> None:
     fig.savefig(buffer, format="png", dpi=120, bbox_inches="tight", transparent=False)
     plt.close(fig)
     
-    # 🛠️ FIX: Replaced use_column_width with width="stretch" to remove the warning
     st.image(buffer.getvalue(), width="stretch")
 
 # ==========================================
-# 🎨 CUSTOM SIDEBAR CSS
+# 🎨 CUSTOM SIDEBAR & UI STYLING
 # ==========================================
 def inject_style() -> None:
     st.markdown(
         """
         <style>
-        /* 1. Main app background */
+        /* Main app background */
         [data-testid="stAppViewContainer"] {
             background-color: #F4F5F9;
         }
         
-        /* 2. Sidebar as a floating card */
+        /* Sidebar as a floating card */
         [data-testid="stSidebar"] {
             background-color: #FFFFFF;
             border-radius: 20px;
@@ -128,10 +127,10 @@ def inject_style() -> None:
             height: calc(100vh - 30px);
         }
         
-        /* Hide the default Streamlit collapse button */
         [data-testid="collapsedControl"] { display: none; }
 
-        /* 3. Style the Navigation Links (Radio Buttons) */
+
+        /* Navigation Links (Radio Buttons) */
         [data-testid="stSidebar"] .stRadio > div {
             gap: 10px;
             margin-top: 20px;
@@ -149,12 +148,10 @@ def inject_style() -> None:
             border: none;
         }
 
-        /* Hide the default radio circle */
         [data-testid="stSidebar"] .stRadio label > div:first-child {
             display: none;
         }
 
-        /* Hover state */
         [data-testid="stSidebar"] .stRadio label:hover {
             background-color: #F4F5F9;
             color: #2D3436;
@@ -167,21 +164,23 @@ def inject_style() -> None:
             box-shadow: 0 4px 15px rgba(108, 92, 231, 0.4);
         }
         
-        /* 4. Profile Header Styling */
+        /* Profile Header */
         .profile-info h4 { margin: 0; color: #2D3436; font-size: 16px; }
         .profile-info p { margin: 0; color: #A0AAB5; font-size: 12px; }
 
-        /* 5. Metric Cards */
+        /* Metric Cards */
         [data-testid="stMetric"] {
             background-color: #FFFFFF;
             border: 1px solid #E5E9F2;
-            padding: 15px;
-            border-radius: 12px;
+            padding: 20px;
+            border-radius: 15px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+            text-align: center;
         }
-        [data-testid="stMetricValue"] {font-size: 1.9rem; color: #6C5CE7;}
+        [data-testid="stMetricValue"] {font-size: 2.2rem; color: #6C5CE7; font-weight: bold;}
+        [data-testid="stMetricLabel"] {justify-content: center; font-size: 1rem;}
         
-        /* 6. Main Form Container */
+        /* Form Container */
         [data-testid="stForm"] {
             background-color: #FFFFFF;
             padding: 25px;
@@ -189,13 +188,93 @@ def inject_style() -> None:
             border: 1px solid #E5E9F2;
             box-shadow: 0 4px 15px rgba(0,0,0,0.03);
         }
+
+        /* Hero Section */
+        .hero-section {
+            background: linear-gradient(135deg, #6C5CE7, #a29bfe);
+            color: white;
+            padding: 40px;
+            border-radius: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 20px rgba(108, 92, 231, 0.2);
+        }
+        .hero-section h1 { color: white; margin-bottom: 10px; font-size: 2.5rem;}
+        .hero-section p { font-size: 1.1rem; opacity: 0.9; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 # ==========================================
-# PAGE 1: PREDICTION
+# PAGE 1: HOME
+# ==========================================
+def render_home_page():
+    # Hero Banner
+    st.markdown(
+        """
+        <div class="hero-section">
+            <h1>Welcome to LoanSense 🏦</h1>
+            <p>The Intelligent Risk Assessment System for modern financial institutions.</p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+    df = load_data()
+    metrics = load_metrics()
+    
+    # --- SECTION 1: BUSINESS METRICS ---
+    if df is not None:
+        st.subheader("📊 Portfolio Overview")
+        
+        total_apps = len(df)
+        default_rate = df['Default'].mean() * 100
+        avg_credit = df['CreditScore'].mean()
+        avg_loan = df['LoanAmount'].mean()
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Applications", f"{total_apps:,}")
+        col2.metric("Historical Default Rate", f"{default_rate:.1f}%")
+        col3.metric("Average Credit Score", f"{avg_credit:.0f}")
+        col4.metric("Avg Loan Amount", f"${avg_loan:,.0f}")
+        
+    st.write("")
+    
+    # --- SECTION 2: MODEL METRICS ---
+    if metrics is not None:
+        st.subheader("⚙️ System Reliability Metrics")
+        st.caption("These metrics prove the underlying predictive analytics are highly accurate.")
+        
+        roc_auc = metrics.get("roc_auc", 0)
+        optimal = metrics.get("optimal_threshold_metrics", {})
+        f1 = optimal.get("f1", 0)
+        precision = optimal.get("precision", 0)
+        recall = optimal.get("recall", 0)
+
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("ROC-AUC Score", f"{roc_auc:.3f}", help="Measures how well the model distinguishes between defaulters and non-defaulters. 0.5 is random, 1.0 is perfect.")
+        m2.metric("F1-Score", f"{f1:.3f}", help="The balance between Precision and Recall.")
+        m3.metric("Precision", f"{precision:.3f}", help="When the model predicts a default, how often is it correct?")
+        m4.metric("Recall", f"{recall:.3f}", help="Out of all actual defaulters, how many did the model catch?")
+
+    st.divider()
+
+    # --- SECTION 3: USER GUIDE ---
+    st.subheader("How to use the system")
+    st.write("Navigate through the platform using the sidebar menu on the left:")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.info("**📊 Dashboard**\n\nEnter a new applicant's profile to instantly calculate their probability of default and see exactly *why* they received that score.")
+        st.info("**📁 Data Explorer**\n\nBrowse through the historical dataset. Use dynamic sliders to filter applicants by Age and Income.")
+    
+    with col_b:
+        st.success("**🤖 Explainable AI**\n\nWe don't just give you a score. Our transparent system shows you which factors (like a high credit score or high debt) pushed the risk up or down.")
+        st.success("**📥 Excel Export**\n\nEasily download individual risk reports to include in your official loan officer documentation.")
+
+# ==========================================
+# PAGE 2: PREDICTION DASHBOARD
 # ==========================================
 def render_predict_page(pipeline, explainer, metrics):
     st.subheader("Applicant Profile")
@@ -230,6 +309,7 @@ def render_predict_page(pipeline, explainer, metrics):
 
         st.divider()
         submit_button = st.form_submit_button("Predict Default Risk", type="primary", use_container_width=True)
+
 
     if submit_button:
         payload = {
@@ -282,7 +362,7 @@ def render_predict_page(pipeline, explainer, metrics):
         render_shap_chart(result["top_feature_contributions"])
 
 # ==========================================
-# PAGE 2: DATA EXPLORER
+# PAGE 3: DATA EXPLORER
 # ==========================================
 def render_data_explorer():
     df = load_data()
@@ -319,17 +399,15 @@ def main() -> None:
     explainer = build_explainer(pipeline)
     metrics = load_metrics()
 
-    # --- CUSTOM PROFILE HEADER WITH YOUR IMAGE ---
-    # Saves the image you provided as logo.png in the frontend folder
+
+    # --- PROFILE HEADER ---
     with st.sidebar:
         col_img, col_text = st.columns([1, 2.5])
         with col_img:
-            # If you saved the image as logo.png in the frontend folder, this loads it.
-            # If it doesn't find it, it will just show a small placeholder box.
             try:
                 st.image("logo.png", width=50)
             except:
-                st.write("🖼️")
+                st.write("🖼")
         with col_text:
             st.markdown(
                 """
@@ -344,27 +422,17 @@ def main() -> None:
     # --- NAVIGATION ---
     page = st.sidebar.radio(
         "Menu", 
-        [" Dashboard", " Data Explorer", "ℹ About"],
+        ["🏠 Home", "📊 Dashboard", "📁 Data Explorer"],
         label_visibility="collapsed"
     )
 
-    # Map the radio button selection back to our pages
-    if "Dashboard" in page:
+    # --- ROUTING ---
+    if "Home" in page:
+        render_home_page()
+    elif "Dashboard" in page:
         render_predict_page(pipeline, explainer, metrics)
     elif "Data Explorer" in page:
         render_data_explorer()
-    elif "About" in page:
-        st.subheader("About this System")
-        
-        st.markdown(
-            """
-            **About the Project:**
-            This app predicts loan default risk using a Random Forest model trained on heavily imbalanced financial data (only ~11.6% default rate). 
-            
-            I built this end-to-end system to demonstrate how to handle imbalanced data safely, integrate **Explainable AI (SHAP)** so loan officers can understand *why* a decision was made, and deploy it as a clean, interactive web application.
-            """
-        )
-        
 
 if __name__ == "__main__":
     main()
